@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#00FF9D" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="OurWallet" />
+  <link rel="manifest" href="manifest.json" />
+  <title>OurWallet</title>
+  <style>
+    :root {
+      --bg: #090D16;
+      --surface: #131B2E;
+      --card: #1A243B;
+      --primary: #00FF9D;
+      --cyan: #00E5FF;
+      --text: #F8FAFC;
+      --text-dim: #94A3B8;
+      --border: #233354;
+      --danger: #FF4757;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding-bottom: 90px; }
+    header { padding: 24px 20px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+    .brand { font-size: 20px; font-weight: 800; letter-spacing: 1px; color: var(--primary); }
+    .badge { background: rgba(0,255,157,0.15); color: var(--primary); font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+    .container { max-width: 480px; margin: 0 auto; padding: 20px; }
+    .summary-card { background: linear-gradient(135deg, #162238 0%, #1A2744 100%); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-bottom: 20px; }
+    .balance-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 1px; }
+    .balance-amount { font-size: 34px; font-weight: 800; color: #FFF; margin: 6px 0 16px; }
+    .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .stat-box { background: rgba(0,0,0,0.25); padding: 12px; border-radius: 12px; }
+    .stat-val { font-size: 16px; font-weight: 700; margin-top: 4px; }
+    .form-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin-bottom: 24px; }
+    .input-group { margin-bottom: 12px; }
+    .input-group label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600; }
+    input, select { width: 100%; background: var(--surface); border: 1px solid var(--border); color: #FFF; padding: 12px; border-radius: 10px; font-size: 15px; outline: none; }
+    input:focus, select:focus { border-color: var(--primary); }
+    button.btn-add { width: 100%; background: var(--primary); color: #000; font-weight: 800; border: none; padding: 14px; border-radius: 12px; font-size: 15px; cursor: pointer; }
+    .tx-item { display: flex; justify-content: space-between; align-items: center; background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; border-radius: 14px; margin-bottom: 10px; }
+    .tx-cat { font-weight: 700; font-size: 15px; }
+    .tx-date { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+    .tx-amount { font-size: 16px; font-weight: 800; }
+    .delete-btn { background: none; border: none; color: var(--danger); font-size: 16px; margin-left: 12px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">OURWALLET</div>
+    <div class="badge">OFFLINE PERSISTENT</div>
+  </header>
+
+  <div class="container">
+    <div class="summary-card">
+      <div class="balance-label">Total Monthly Expenses</div>
+      <div class="balance-amount" id="totalBalance">$0.00</div>
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="balance-label">Transactions</div>
+          <div class="stat-val" id="txCount">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="balance-label">Storage Engine</div>
+          <div class="stat-val" style="color:var(--cyan)">IndexedDB</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-card">
+      <div class="input-group">
+        <label>Expense Name / Title</label>
+        <input type="text" id="txTitle" placeholder="e.g. Groceries, Dinner" />
+      </div>
+      <div class="input-group">
+        <label>Amount ($)</label>
+        <input type="number" id="txAmount" placeholder="0.00" step="0.01" />
+      </div>
+      <div class="input-group">
+        <label>Category</label>
+        <select id="txCategory">
+          <option>Groceries & Food</option>
+          <option>Dining & Drinks</option>
+          <option>Rent & Utilities</option>
+          <option>Transport & Gas</option>
+          <option>Entertainment</option>
+          <option>Shopping</option>
+        </select>
+      </div>
+      <button class="btn-add" onclick="saveTransaction()">Add Expense</button>
+    </div>
+
+    <h3 style="margin-bottom: 12px; font-size: 16px; letter-spacing: 0.5px;">Recent Transactions</h3>
+    <div id="txList"></div>
+  </div>
+
+  <script>
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(console.error);
+    }
+
+    // Initialize IndexedDB
+    let db;
+    const req = indexedDB.open('OurWalletDB', 1);
+    req.onupgradeneeded = (e) => {
+      db = e.target.result;
+      if (!db.objectStoreNames.contains('transactions')) {
+        db.createObjectStore('transactions', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = (e) => {
+      db = e.target.result;
+      renderTransactions();
+    };
+
+    function saveTransaction() {
+      const title = document.getElementById('txTitle').value.trim();
+      const amount = parseFloat(document.getElementById('txAmount').value);
+      const category = document.getElementById('txCategory').value;
+      if (!title || isNaN(amount) || amount <= 0) return alert('Please enter a valid title and amount');
+
+      const tx = db.transaction('transactions', 'readwrite');
+      tx.objectStore('transactions').add({
+        title,
+        amount,
+        category,
+        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      });
+      tx.oncomplete = () => {
+        document.getElementById('txTitle').value = '';
+        document.getElementById('txAmount').value = '';
+        renderTransactions();
+      };
+    }
+
+    function deleteTransaction(id) {
+      const tx = db.transaction('transactions', 'readwrite');
+      tx.objectStore('transactions').delete(id);
+      tx.oncomplete = () => renderTransactions();
+    }
+
+    function renderTransactions() {
+      const tx = db.transaction('transactions', 'readonly');
+      const store = tx.objectStore('transactions');
+      const req = store.getAll();
+
+      req.onsuccess = () => {
+        const list = req.result.reverse();
+        const listContainer = document.getElementById('txList');
+        let total = 0;
+        listContainer.innerHTML = '';
+
+        list.forEach(item => {
+          total += item.amount;
+          const el = document.createElement('div');
+          el.className = 'tx-item';
+          el.innerHTML = `
+            <div>
+              <div class="tx-cat">${item.title} <span style="font-size:12px; color:var(--text-dim);">(${item.category})</span></div>
+              <div class="tx-date">${item.date}</div>
+            </div>
+            <div style="display:flex; align-items:center;">
+              <span class="tx-amount" style="color:var(--primary);">$${item.amount.toFixed(2)}</span>
+              <button class="delete-btn" onclick="deleteTransaction(${item.id})">✕</button>
+            </div>
+          `;
+        });
+
+        document.getElementById('totalBalance').innerText = `$${total.toFixed(2)}`;
+        document.getElementById('txCount').innerText = list.length;
+      };
+    }
+  </script>
+</body>
+</html>
